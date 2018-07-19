@@ -10,3 +10,6 @@ SRCS = *.c
 
 all:
 	$(CC) $(CFLAGS) -o $(BIN) $(SRCS)
+
+clean:
+	rm -f $(BIN)

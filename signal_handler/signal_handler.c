@@ -7,13 +7,12 @@
 #define MAX_ULL 0xffffffffffffffff
 #define TERM_ULL 0x1010101010101010
 
-// sig_atomic_t a = 0;
+// static volatile sig_atomic_t a = 0;
 static volatile unsigned long long a = 0;
 
 static void alarm_handler(int sig)
 {
     /* reset */
-    // printf("reset a\n");
     a = TERM_ULL;
 }
 
@@ -28,19 +27,19 @@ int main()
     sa.sa_handler = alarm_handler;
     if (sigaction(SIGALRM, &sa, NULL) == -1)
     {
-        printf("sigaction failed!\n");
-        exit(1);
+        fprintf(stderr, "sigaction FAILED!\n");
+        exit(EXIT_FAILURE);
     }
 
     itv.it_value.tv_sec = 1;
     itv.it_value.tv_usec = 0;
     itv.it_interval.tv_sec = 0;
-    itv.it_interval.tv_usec = 1; /* small interval to increase the chance of race condition */
+    itv.it_interval.tv_usec = 10; /* small interval to increase the chance of race condition */
 
     if (setitimer(ITIMER_REAL, &itv, 0) == -1)
     {
-        printf("setitimer failed!\n");
-        exit(1);
+        fprintf(stderr, "setitimer FAILED!\n");
+        exit(EXIT_FAILURE);
     }
 
     while (1)
@@ -52,8 +51,9 @@ int main()
         if (b != TERM_ULL && b != MAX_ULL)
         {
             printf("b=%llx\n", b);
+            break;
         }
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }
