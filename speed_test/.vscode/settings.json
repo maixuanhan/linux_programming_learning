@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "fcntl.h": "c",
+        "common.h": "c",
+        "stdlib.h": "c",
+        "signal.h": "c",
+        "time.h": "c"
+    }
+}
