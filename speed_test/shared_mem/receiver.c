@@ -2,60 +2,42 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <semaphore.h>
 #include <sys/mman.h>
 #include <sys/stat.h>        /* For mode constants */
 #include <fcntl.h>           /* For O_* constants */
 
-#include <sys/types.h>      /* For pid_t */
-#include <signal.h>         /* For kill() */
-
-
 #include "common.h"
 
-volatile sig_atomic_t write_done = 0;
-static void sigusr_handler(int sig)
-{
-    write_done = 1;
-}
+static volatile int is_ready;
 
 int main(int argc, char** argv)
 {
-    pid_t pid = getpid();
-    printf("Receiver is running with PID=%d\n", (int)pid);
-
-    struct sigaction sa;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sa.sa_handler = sigusr_handler;
-    if (sigaction(SIGUSR1, &sa, NULL) == -1)
+    /* Create a named semaphore */
+    sem_t* p_sem = sem_open(SEMAPHORE_NAME, O_CREAT, S_IRUSR | S_IWUSR, 1);
+    if (p_sem == SEM_FAILED)
     {
-        fprintf(stderr, "sigaction FAILED!\n");
+        fprintf(stderr, "sem_open FAILED!\n");
         exit(EXIT_FAILURE);
     }
 
-    while (!write_done); /* wait for signal from sender */
-
-    print_time();
-    printf("Receiving data...\n");
-
     /* Open shared mem object */
-    int fd = shm_open(SHARED_OBJ_NAME, O_RDONLY, 0);
+    int fd = shm_open(SHARED_OBJ_NAME, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd == -1)
     {
         fprintf(stderr, "shm_open FAILED!\n");
         exit(EXIT_FAILURE);
     }
 
-    /* Get shared mem object information */
-    struct stat sb;
-    if (fstat(fd, &sb) == -1)
+    /* Set the shared mem object with the desired size */
+    if (ftruncate(fd, SHARED_OBJ_SIZE) == -1)
     {
-        fprintf(stderr, "fstat FAILED!\n");
+        fprintf(stderr, "ftruncate FAILED!\n");
         exit(EXIT_FAILURE);
     }
 
     /* Create a new mapping which is shared */
-    void* address = mmap(NULL, sb.st_size, PROT_READ, MAP_SHARED, fd, 0);
+    void* address = mmap(NULL, SHARED_OBJ_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (address == MAP_FAILED)
     {
         fprintf(stderr, "mmap FAILED!\n");
@@ -69,12 +51,64 @@ int main(int argc, char** argv)
         exit(EXIT_FAILURE);
     }
 
+    printf("RECEIVER starts. Waiting for data from SENDER...\n");
+
     int sum = 0;
     int validated_sum = 0;
-    for (int i = 0; i < ELEM_COUNT; ++i)
+
+    int is_first_time = 1;
+
+    for (int k = 0; k < NUMBER_OF_TIME; ++k)
     {
-        sum = (sum + ((int*)address)[i]);   // let the buffer overflow, we don't care
-        validated_sum = (validated_sum + i);
+        is_ready = 0;
+
+        while (!is_ready)
+        {
+            if (sem_wait(p_sem) == -1)
+            {
+                fprintf(stderr, "sem_wait FAILED!\n");
+                exit(EXIT_FAILURE);
+            }
+
+            is_ready = ((int*)address)[LAST_ELEM_IDX];
+
+            if (sem_post(p_sem) == -1)
+            {
+                fprintf(stderr, "sem_post FAILED!\n");
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        if (is_first_time)
+        {
+            is_first_time = 0;
+            print_time();
+            printf("Start receiving data\n");
+        }
+
+        /* Read shared data */
+        for (int i = 0; i < ELEM_COUNT; ++i)
+        {
+            sum = (sum + ((int*)address)[i]);   // let the buffer overflow, we don't care
+            validated_sum = (validated_sum + i * k);
+        }
+
+        if (sem_wait(p_sem) == -1)
+        {
+            fprintf(stderr, "sem_wait FAILED!\n");
+            exit(EXIT_FAILURE);
+        }
+
+        ((int*)address)[LAST_ELEM_IDX] = 0; // signal to sender
+
+        if (sem_post(p_sem) == -1)
+        {
+            fprintf(stderr, "sem_post FAILED!\n");
+            exit(EXIT_FAILURE);
+        }
+
+        // Debug:
+        // printf("Get block [%d] of data\n", k + 1);
     }
 
     if (sum != validated_sum)
@@ -86,6 +120,12 @@ int main(int argc, char** argv)
     if (shm_unlink(SHARED_OBJ_NAME) == -1)
     {
         fprintf(stderr, "shm_unlink FAILED!\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (sem_unlink(SEMAPHORE_NAME) == -1)
+    {
+        fprintf(stderr, "sem_unlink FAILED!\n");
         exit(EXIT_FAILURE);
     }
 

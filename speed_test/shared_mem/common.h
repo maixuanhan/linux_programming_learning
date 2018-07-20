@@ -7,9 +7,13 @@
 #include <stdio.h>
 #include <time.h>
 
-#define ELEM_COUNT 400000000
+#define NUMBER_OF_TIME 200
+#define ELEM_COUNT 1000000
 #define SHARED_OBJ_NAME "test_speed_shared_mem"
-#define SHARED_OBJ_SIZE (sizeof(int) * ELEM_COUNT)
+#define SHARED_OBJ_SIZE (sizeof(int) * (ELEM_COUNT + 1))
+#define LAST_ELEM_IDX ELEM_COUNT
+
+#define SEMAPHORE_NAME "test_speed_sem"
 
 static struct timespec g_last_time;
 

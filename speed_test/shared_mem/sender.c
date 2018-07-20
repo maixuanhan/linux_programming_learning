@@ -2,51 +2,46 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <semaphore.h>
 #include <sys/mman.h>
 #include <sys/stat.h>        /* For mode constants */
 #include <fcntl.h>           /* For O_* constants */
 
-#include <sys/types.h>
-#include <signal.h>
-
 #include "common.h"
 
-#define SHARED_OBJ_NAME "test_speed_shared_mem"
-#define SHARED_OBJ_SIZE (sizeof(int) * ELEM_COUNT)
+static volatile int is_not_ready;
 
 int main(int argc, char** argv)
 {
-    pid_t pid = 0;
-    if (argc < 2)
+    print_time();
+    printf("SENDER starts.\n");
+
+    /* Create a named semaphore */
+    sem_t* p_sem = sem_open(SEMAPHORE_NAME, 0);
+    if (p_sem == SEM_FAILED)
     {
-        fprintf(stderr, "Missing receiver's PID.\n");
+        fprintf(stderr, "sem_open FAILED!\n");
         exit(EXIT_FAILURE);
     }
-    else
-    {
-        pid = (pid_t)atoi(argv[1]);
-    }
-
-    print_time();
-    printf("Create share mem object and write data\n");
 
     /* Open shared mem object */
-    int fd = shm_open(SHARED_OBJ_NAME, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    int fd = shm_open(SHARED_OBJ_NAME, O_RDWR, 0);
     if (fd == -1)
     {
         fprintf(stderr, "shm_open FAILED!\n");
         exit(EXIT_FAILURE);
     }
 
-    /* Set the shared mem object with the desired size */
-    if (ftruncate(fd, SHARED_OBJ_SIZE) == -1)
+    /* Get shared mem object information */
+    struct stat sb;
+    if (fstat(fd, &sb) == -1)
     {
-        fprintf(stderr, "ftruncate FAILED!\n");
+        fprintf(stderr, "fstat FAILED!\n");
         exit(EXIT_FAILURE);
     }
 
     /* Create a new mapping which is shared */
-    void* address = mmap(NULL, SHARED_OBJ_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    void* address = mmap(NULL, sb.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (address == MAP_FAILED)
     {
         fprintf(stderr, "mmap FAILED!\n");
@@ -60,17 +55,48 @@ int main(int argc, char** argv)
         exit(EXIT_FAILURE);
     }
 
-    /* Write data */
-    for (int i = 0; i < ELEM_COUNT; ++i)
+    for (int k = 0; k < NUMBER_OF_TIME; ++k)
     {
-        ((int*)address)[i] = i;
-    }
+        /* Write data to shared memory */
+        for (int i = 0; i < ELEM_COUNT; ++i)
+        {
+            ((int*)address)[i] = i * k;
+        }
 
-    /* give signal to the receiver */
-    if (kill(pid, SIGUSR1) == -1)
-    {
-        fprintf(stderr, "kill FAILED!\n");
-        exit(EXIT_FAILURE);
+        if (sem_wait(p_sem) == -1)
+        {
+            fprintf(stderr, "sem_wait FAILED!\n");
+            exit(EXIT_FAILURE);
+        }
+
+        ((int*)address)[LAST_ELEM_IDX] = 1; // signal to receiver
+
+        if (sem_post(p_sem) == -1)
+        {
+            fprintf(stderr, "sem_post FAILED!\n");
+            exit(EXIT_FAILURE);
+        }
+
+        // debug:
+        // printf("Write block [%d] of data\n", k + 1);
+
+        is_not_ready = 1;
+        while (is_not_ready)
+        {
+            if (sem_wait(p_sem) == -1)
+            {
+                fprintf(stderr, "sem_wait FAILED!\n");
+                exit(EXIT_FAILURE);
+            }
+
+            is_not_ready = ((int*)address)[LAST_ELEM_IDX];
+
+            if (sem_post(p_sem) == -1)
+            {
+                fprintf(stderr, "sem_post FAILED!\n");
+                exit(EXIT_FAILURE);
+            }
+        }
     }
 
     print_time();
