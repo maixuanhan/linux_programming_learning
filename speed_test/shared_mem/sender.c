@@ -55,7 +55,7 @@ int main(int argc, char** argv)
         exit(EXIT_FAILURE);
     }
 
-    for (int k = 0; k < NUMBER_OF_TIME; ++k)
+    for (int k = 0; k < NUMBER_OF_TIMES; ++k)
     {
         /* Write data to shared memory */
         for (int i = 0; i < ELEM_COUNT; ++i)

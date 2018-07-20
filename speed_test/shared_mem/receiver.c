@@ -58,7 +58,7 @@ int main(int argc, char** argv)
 
     int is_first_time = 1;
 
-    for (int k = 0; k < NUMBER_OF_TIME; ++k)
+    for (int k = 0; k < NUMBER_OF_TIMES; ++k)
     {
         is_ready = 0;
 
