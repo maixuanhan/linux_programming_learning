@@ -9,12 +9,17 @@
 
 #include "common.h"
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
+    RunningMode_t mode = UDP_MODE;
     if (argc < 2)
     {
         fprintf(stderr, "Missing address!\n");
         exit(EXIT_FAILURE);
+    }
+    else if (argc > 2)
+    {
+        mode = GetRunningMode(argv[2]);
     }
 
     int fd;
@@ -28,7 +33,7 @@ int main(int argc, char** argv)
     hints.ai_addr = NULL;
     hints.ai_next = NULL;
     hints.ai_family = AF_UNSPEC; /* Allows Ipv4 or IPv6 */
-    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_socktype = mode == TCP_MODE ? SOCK_STREAM : SOCK_DGRAM;
     hints.ai_flags = AI_NUMERICSERV;
 
     if (getaddrinfo(argv[1], PORT_NUM, &hints, &result) != 0)
@@ -42,12 +47,21 @@ int main(int argc, char** argv)
     {
         fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 
-        if (fd == -1) continue; /* On error, try next address */
+        if (fd == -1)
+            continue; /* On error, try next address */
 
-        if (connect(fd, rp->ai_addr, rp->ai_addrlen) != -1) break; /* Success */
+        if (mode == TCP_MODE)
+        {
+            if (connect(fd, rp->ai_addr, rp->ai_addrlen) != -1)
+                break; /* Success */
 
-        /* Connect failed: close this socket and try next address */
-        close(fd);
+            /* Connect failed: close this socket and try next address */
+            close(fd);
+        }
+        else
+        {
+            break;
+        }
     }
 
     if (rp == NULL)
@@ -56,13 +70,33 @@ int main(int argc, char** argv)
         exit(EXIT_FAILURE);
     }
 
-    freeaddrinfo(result);
-
     char buf[DATA_SIZE];
-    if (read(fd, buf, sizeof(buf)) == -1)
+
+    if (mode == TCP_MODE)
     {
-        perror("read FAILED");
-        exit(EXIT_FAILURE); /* Automatically close fd */
+        freeaddrinfo(result);
+
+        if (read(fd, buf, sizeof(buf)) == -1)
+        {
+            perror("read FAILED");
+            exit(EXIT_FAILURE); /* Automatically close fd */
+        }
+    }
+    else
+    {
+        if (sendto(fd, NULL, 0, 0, (struct sockaddr *)rp->ai_addr, rp->ai_addrlen) != 0)
+        {
+            perror("sendto FAILED");
+            exit(EXIT_FAILURE);
+        }
+
+        freeaddrinfo(result);
+
+        if (recvfrom(fd, buf, DATA_SIZE, 0, NULL, NULL) != DATA_SIZE)
+        {
+            perror("recvfrom FAILED");
+            exit(EXIT_FAILURE);
+        }
     }
 
     if (close(fd) == -1)
@@ -78,9 +112,9 @@ int main(int argc, char** argv)
     // }
     // printf("\n");
 
-    int* p = (int*)buf;
+    int *p = (int *)buf;
     time_t rawtime = ToPosixTime(ntohl(*p));
-    printf("Received time is: %s\n\n", LocalTimeToStr(rawtime));
+    printf("Received time is: %s\n", LocalTimeToStr(rawtime));
 
     return EXIT_SUCCESS;
 }

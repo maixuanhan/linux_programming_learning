@@ -37,12 +37,12 @@ typedef enum
 
 RunningMode_t GetRunningMode(const char* m)
 {
-    if (strncmp(m, "udp", 3) == 0)
+    if (strncmp(m, "tcp", 3) == 0)
     {
-        return UDP_MODE;
+        return TCP_MODE;
     }
 
-    return TCP_MODE;
+    return UDP_MODE;
 }
 
 #endif /* TIME_PROTO_UTILS_FUNCS */
