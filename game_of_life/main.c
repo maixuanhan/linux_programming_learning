@@ -2,13 +2,16 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define LIFE_CHARACTER '#'
+#include <unistd.h>
+
+#define LIFE_CHARACTER '.'
 
 typedef struct Board
 {
     int num_column;
     int num_row;
     char** data;
+    char** swap;
 } Board_t;
 
 int is_valid(Board_t* board)
@@ -23,6 +26,7 @@ void init(int rows, int cols, Board_t* board)
     if (rows <= 0 || cols <= 0)
     {
         board->data = NULL;
+        board->swap = NULL;
         board->num_column = 0;
         board->num_row = 0;
         return;
@@ -32,9 +36,11 @@ void init(int rows, int cols, Board_t* board)
     board->num_row = rows;
 
     board->data = (char**)malloc(rows * sizeof(char*));
+    board->swap = (char**)malloc(rows * sizeof(char*));
     for (int i = 0; i < rows; ++i)
     {
         board->data[i] = (char*)calloc(cols, sizeof(char));
+        board->swap[i] = (char*)calloc(cols, sizeof(char));
     }
 }
 
@@ -45,15 +51,20 @@ void dispose(Board_t* board)
     for (int i = 0; i < board->num_row; ++i)
     {
         free(board->data[i]);
+        free(board->swap[i]);
     }
 
     free(board->data);
     board->data = NULL;
+
+    free(board->swap);
+    board->swap = NULL;
+
     board->num_column = 0;
     board->num_row = 0;
 }
 
-void randomize_board(Board_t* board)
+void randomize_board(Board_t* board, int max_density)
 {
     if (!is_valid(board)) return;
 
@@ -64,7 +75,7 @@ void randomize_board(Board_t* board)
         checked = 1;
     }
 
-    int ran_percentage = board->num_column * board->num_row * (rand() % 20) / 100; // maximum 30%
+    int ran_percentage = board->num_column * board->num_row * (rand() % (max_density % 100)) / 100;
 
     for (int i = 0; i < ran_percentage; ++i)
     {
@@ -80,6 +91,80 @@ void randomize_board(Board_t* board)
             }
         }
     }
+}
+
+int count_around(Board_t *board, int row, int col)
+{
+    // skip this check as it is guarantee to be valid
+    // if (!is_valid(board) || row < 0 || row >= board->num_row || col < 0 || col >= board->num_column)
+    //     return 0;
+
+    int count = 0;
+    if (row > 0)
+    {
+        if (col > 0) count += board->data[row - 1][col - 1];
+
+        count += board->data[row - 1][col];
+
+        if (col < board->num_column - 1) count += board->data[row - 1][col + 1];
+    }
+
+    if (col > 0) count += board->data[row][col - 1];
+
+    if (col < board->num_column - 1) count += board->data[row][col + 1];
+
+    if (row < board->num_row - 1)
+    {
+        if (col > 0)
+            count += board->data[row + 1][col - 1];
+        count += board->data[row + 1][col];
+        if (col < board->num_column - 1)
+            count += board->data[row + 1][col + 1];
+    }
+
+    return count;
+}
+
+void calculate_next_state(Board_t *board)
+{
+    if (!is_valid(board))
+        return;
+
+    // 1. Any live cell with fewer than two live neighbors dies, as if by under population.
+    // 2. Any live cell with two or three live neighbors lives on to the next generation.
+    // 3. Any live cell with more than three live neighbors dies, as if by overpopulation.
+    // 4. Any dead cell with exactly three live neighbors becomes a live cell, as if by reproduction.
+    for (int i = 0; i < board->num_row; ++i)
+    {
+        for (int j = 0; j < board->num_column; ++j)
+        {
+            int count = count_around(board, i, j);
+            if (board->data[i][j])
+            {
+                if (count == 2 || count == 3)
+                    board->swap[i][j] = 1;
+                else
+                    board->swap[i][j] = 0;
+            }
+            else
+            {
+                if (count == 3)
+                    board->swap[i][j] = 1;
+                else
+                    board->swap[i][j] = 0;
+            }
+        }
+    }
+}
+
+void swap_data(Board_t *board)
+{
+    if (!is_valid(board))
+        return;
+
+    char **tmp = board->data;
+    board->data = board->swap;
+    board->swap = tmp;
 }
 
 void print_board_info(Board_t* board)
@@ -138,9 +223,16 @@ int main()
     init(rows - 1, cols - 1, &board);
     // print_board_info(&board);
 
-    randomize_board(&board);
+    randomize_board(&board, 40);
 
-    print_board(&board);
+    while (1)
+    {
+        print_board(&board);
+        calculate_next_state(&board);
+
+        swap_data(&board);
+        usleep(200000); // 0.2s
+    }
 
     return EXIT_SUCCESS;
 }
